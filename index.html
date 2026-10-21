@@ -78,6 +78,23 @@ details.cols .pop{position:absolute;right:0;z-index:5;background:#fff;border:1px
 .drop h1{font-size:24px;margin:0 0 8px}
 .note{font-size:12px;color:var(--muted);margin-top:10px}
 .printonly{display:none}
+.gate{max-width:440px;margin:40px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px 26px}
+.gate h1{font-size:22px;margin:0 0 6px}.gate p{color:var(--muted);margin:0 0 18px}
+.gate input[type=password]{width:100%;min-height:48px;border:1px solid #C3CBDA;border-radius:8px;padding:0 14px;font-size:16px}
+.gate .err{color:var(--orange);font-weight:700;margin-top:10px;min-height:20px}
+.mcol{border:0;background:transparent;padding:0;cursor:pointer;font:inherit;color:inherit}
+.mcol:hover .mbar{filter:brightness(1.12)}
+.mcol.dim{opacity:.35}
+.mlab{border:0;background:transparent;font:inherit;color:inherit;cursor:pointer;padding:4px 0;border-radius:6px}
+.mlab.sel{background:var(--ink);color:#fff}.mlab.sel span{color:#D5DCEE}
+.rowbtn{border:0;background:transparent;font:inherit;color:inherit;padding:0;text-align:left;cursor:pointer;width:100%}
+.rowbtn:hover span.nm{text-decoration:underline}
+.namebtn{border:0;background:transparent;font:inherit;font-weight:700;color:var(--ink);padding:0;cursor:pointer;text-align:left}
+.namebtn:hover{text-decoration:underline;color:var(--blue)}
+.banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:var(--ink);color:#fff;border-radius:14px;padding:16px 20px;margin-top:16px}
+.banner .t{font-size:18px;font-weight:800}.banner .d{font-size:14px;color:#D5DCEE;margin-top:2px}
+.banner .btn{border-color:#5A6C98}
+.hint{font-size:12px;color:var(--muted);margin-top:2px}
 @media (max-width:820px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi .v{font-size:36px}}
 @media print{
  body{background:#fff}
@@ -104,11 +121,10 @@ details.cols .pop{position:absolute;right:0;z-index:5;background:#fff;border:1px
    <button data-act="view" data-v="log">Job log</button>
   </div>
   <div class="spacer"></div>
-  <label class="btn" for="file">Load file</label>
-  <input type="file" id="file" hidden accept=".xlsx,.xlsm,.xls">
   <button class="btn" data-act="xlsx">Export Excel</button>
   <button class="btn" data-act="png">Save as image</button>
   <button class="btn primary" data-act="pdf">Export PDF</button>
+  <button class="btn" data-act="lock" title="Lock this page on this device">Lock</button>
  </div>
 </header>
 
@@ -118,7 +134,7 @@ details.cols .pop{position:absolute;right:0;z-index:5;background:#fff;border:1px
   <div class="printonly" id="printHead"></div>
   <div id="body"></div>
  </div>
- <div class="note noprint" style="margin-top:18px">Your file is read in this browser only. Nothing is uploaded or saved.</div>
+ <div class="note noprint" style="margin-top:18px" id="updated"></div>
 </main>
 
 <script>
@@ -130,7 +146,7 @@ var S={data:{trim:[],lockout:[]},maps:{trim:null,lockout:null},pmSince:{trim:nul
  hide:{builder:false,community:false,pm:false},
  quick:{inc:false,repeat:false,roc:false,nopm:false,flag:false},
  cols:{date:true,builder:true,community:true,lot:true,aw:true,pm:true,result:true,reason:true,notes:false,flags:true},
- colsOpen:false,sort:{key:'date',dir:-1},limit:100,showAllB:false,goal:90};
+ colsOpen:false,sort:{key:'date',dir:-1},limit:100,showAllB:false,goal:90,month:''};
 try{var g=parseFloat(localStorage.getItem('ftc_goal'));if(g>0&&g<=100)S.goal=g;}catch(e){}
 
 function $(s){return document.querySelector(s)}
@@ -197,18 +213,44 @@ function finish(rows,key){
  ROSTER.concat(ranked('pm').filter(function(p){return ROSTER.indexOf(p)<0})).forEach(function(p,i){pm[p]='PM '+(i+1)});
  S.maps[key]={builder:bm,community:cm,pm:pm};
 }
-function loadWorkbook(buf){
- var wb=XLSX.read(buf,{type:'array'});
- var found={trim:null,lockout:null};
- wb.SheetNames.forEach(function(n){var l=n.toLowerCase();if(l.indexOf('log')<0)return;if(l.indexOf('trim')>=0)found.trim=n;if(l.indexOf('lockout')>=0)found.lockout=n});
- S.data.trim=found.trim?parseSheet(wb.Sheets[found.trim]):[];
- S.data.lockout=found.lockout?parseSheet(wb.Sheets[found.lockout]):[];
- if(!S.data.trim.length&&!S.data.lockout.length){alert('Could not find a Trim Log or Lockout Log sheet with Builder and Result columns.\nSheets in this file: '+wb.SheetNames.join(', '));return}
+function hydrate(o,i){
+ var y=+o.ymd.slice(0,4),m=+o.ymd.slice(5,7),d=+o.ymd.slice(8,10),dt=new Date(Date.UTC(y,m-1,d));
+ return {ymd:o.ymd,ym:o.ymd.slice(0,7),ds:pad(m)+'/'+pad(d)+'/'+y,dow:dt.getUTCDay(),builder:o.builder||'',community:o.community||'',lot:o.lot||'',aw:o.aw||'',
+  result:o.result,reason:o.reason||'',notes:o.notes||'',pm:o.pm||'',flags:[],idx:i};
+}
+function loadPayload(p){
+ S.data.trim=(p.trim||[]).map(hydrate);S.data.lockout=(p.lockout||[]).map(hydrate);
  finish(S.data.trim,'trim');finish(S.data.lockout,'lockout');
- S.loaded=true;S.ds=S.data.trim.length?'trim':'lockout';
+ S.loaded=true;S.ds=S.data.trim.length?'trim':'lockout';S.published=p.published||'';
  resetFilters();draw();
 }
-
+var ENC=null,GATE_MSG='';
+function b64d(t){var b=atob(t),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u}
+function decrypt(enc,pw){
+ var te=new TextEncoder();
+ return crypto.subtle.importKey('raw',te.encode(pw),'PBKDF2',false,['deriveKey']).then(function(k){
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:b64d(enc.salt),iterations:enc.iter,hash:'SHA-256'},k,{name:'AES-GCM',length:256},false,['decrypt']);
+ }).then(function(key){return crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(enc.iv)},key,b64d(enc.ct))})
+ .then(function(buf){return JSON.parse(new TextDecoder().decode(buf))});
+}
+function unlock(pw,remember,silent){
+ if(!ENC)return;
+ var btn=$('#unlockBtn');if(btn){btn.disabled=true;btn.textContent='Opening\u2026'}
+ decrypt(ENC,pw).then(function(p){
+  try{if(remember)localStorage.setItem('ftc_pw',pw);}catch(e){}
+  loadPayload(p);
+ }).catch(function(){
+  try{localStorage.removeItem('ftc_pw')}catch(e){}
+  GATE_MSG=silent?'':'That password didn\u2019t work. Try again.';drawBody();
+ });
+}
+function start(){
+ fetch('data.enc?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('missing');return r.json()})
+ .then(function(enc){
+  ENC=enc;var saved=null;try{saved=localStorage.getItem('ftc_pw')}catch(e){}
+  if(saved)unlock(saved,true,true);else drawBody();
+ }).catch(function(){GATE_MSG='NODATA';drawBody()});
+}
 /* ---------- names, filters ---------- */
 function nm(kind,v){if(!v)return'';if(!S.hide[kind])return v;return S.maps[S.ds][kind][v]||'Hidden'}
 function rowsNow(){return S.data[S.ds]}
@@ -216,11 +258,12 @@ function resetFilters(){
  var rows=rowsNow();var mn='',mx='';
  rows.forEach(function(r){if(!mn||r.ymd<mn)mn=r.ymd;if(!mx||r.ymd>mx)mx=r.ymd});
  S.f={from:mn,to:mx,builder:'',pm:'',community:'',reason:'',q:''};
- S.quick={inc:false,repeat:false,roc:false,nopm:false,flag:false};S.limit=100;
+ S.quick={inc:false,repeat:false,roc:false,nopm:false,flag:false};S.limit=100;S.month='';
 }
-function filt(rows,withQuick){
+function filt(rows,withQuick,ignoreMonth){
  var f=S.f,q=f.q.trim().toLowerCase(),k=S.quick;
  return rows.filter(function(r){
+  if(!ignoreMonth&&S.month&&r.ym!==S.month)return false;
   if(f.from&&r.ymd<f.from)return false;if(f.to&&r.ymd>f.to)return false;
   if(f.builder&&r.builder!==f.builder)return false;if(f.pm&&r.pm!==f.pm)return false;
   if(f.community&&r.community!==f.community)return false;if(f.reason&&r.reason!==f.reason)return false;
@@ -264,6 +307,7 @@ function monthLabel(ym,multi){
  var s=new Date(Date.UTC(y,m-1,1)).toLocaleString('en-US',{month:'short',timeZone:'UTC'});
  return multi?s+' '+String(y).slice(2):s;
 }
+function monthLong(ym){var y=+ym.slice(0,4),m=+ym.slice(5,7);return new Date(Date.UTC(y,m-1,1)).toLocaleString('en-US',{month:'long',year:'numeric',timeZone:'UTC'})}
 function barColor(rate){return rate>=S.goal?'var(--blue)':'var(--orange)'}
 function renderDash(){
  var rows=filt(rowsNow(),false),st=stats(rows);
@@ -272,22 +316,24 @@ function renderDash(){
  inc.forEach(function(r){var k=r.reason||'(No reason entered)';rc[k]=(rc[k]||0)+1});
  var reasons=Object.keys(rc).map(function(k){return[k,rc[k]]}).sort(function(a,b){return b[1]-a[1]});
  var maxR=reasons.length?reasons[0][1]:1;
- var mm=groupBy(rows,'ym'),keys=Object.keys(mm).sort();
+ var mrows=filt(rowsNow(),false,true);
+ var mm=groupBy(mrows,'ym'),keys=Object.keys(mm).sort();
  var multi=Object.keys(groupBy(keys.map(function(k){return{y:k.slice(0,4)}}),'y')).length>1;
- var maxYmd=rows.reduce(function(a,r){return r.ymd>a?r.ymd:a},'');
+ var maxYmd=mrows.reduce(function(a,r){return r.ymd>a?r.ymd:a},'');
  var lastKey=keys[keys.length-1],eom=new Date(Date.UTC(+lastKey.slice(0,4),+lastKey.slice(5,7),0)).getUTCDate();
  var partial=maxYmd.slice(0,7)===lastKey&&+maxYmd.slice(8,10)<eom;
  var plot='',labs='';
  keys.forEach(function(k){
   var s=stats(mm[k]);
-  plot+='<div class="mcol"><div class="mrate">'+fmtPct(s.rate)+'</div><div class="mbar" style="height:'+Math.round(s.rate*1.5)+'px;background:'+barColor(s.rate)+'"></div></div>';
-  labs+='<div>'+monthLabel(k,multi)+'<span>'+s.n+' jobs</span></div>';
+  var dim=S.month&&S.month!==k?' dim':'',sel=S.month===k?' sel':'';
+  plot+='<button class="mcol'+dim+'" data-act="month" data-v="'+k+'" aria-label="Show '+monthLong(k)+'"><div class="mrate">'+fmtPct(s.rate)+'</div><div class="mbar" style="height:'+Math.round(s.rate*1.5)+'px;background:'+barColor(s.rate)+'"></div></button>';
+  labs+='<div><button class="mlab'+sel+'" data-act="month" data-v="'+k+'" style="width:100%">'+monthLabel(k,multi)+'<span>'+s.n+' jobs</span></button></div>';
  });
  var bg=groupBy(rows,'builder'),bnames=Object.keys(bg).sort(function(a,b){return bg[b].length-bg[a].length});
  var shownB=S.showAllB?bnames:bnames.slice(0,10);
  var btab=shownB.map(function(b){
   var s=stats(bg[b]);
-  return '<tr><td style="font-weight:700">'+esc(nm('builder',b))+'</td><td style="text-align:right">'+s.n+'</td><td style="text-align:right">'+s.i+'</td>'+
+  return '<tr><td><button class="namebtn" data-act="builder" data-v="'+esc(b)+'">'+esc(nm('builder',b))+'</button></td><td style="text-align:right">'+s.n+'</td><td style="text-align:right">'+s.i+'</td>'+
   '<td style="min-width:200px"><div style="display:flex;align-items:center;gap:10px"><div class="track" style="flex:1 1 0"><div class="fillbar" style="width:'+Math.round(s.rate)+'%;background:'+barColor(s.rate)+'"></div></div>'+
   '<span style="width:52px;text-align:right;font-weight:800">'+fmtPct(s.rate)+'</span><span class="flag" style="width:64px">'+(s.rate<S.goal?'Below goal':'')+'</span></div></td></tr>';
  }).join('');
@@ -301,7 +347,17 @@ function renderDash(){
  var nop=pg[''];
  if(nop&&nop.length){var s0=stats(nop);ptab+='<tr><td style="color:var(--muted)">No PM name</td><td style="text-align:right">'+s0.n+'</td><td style="text-align:right">'+s0.i+'</td><td style="text-align:right;color:var(--muted)">'+fmtPct(s0.rate)+'</td></tr>'}
  var span=S.f.from&&S.f.to?(S.f.from+' to '+S.f.to):'';
- return ''+
+ if(S.month)span=monthLong(S.month);
+ var banner='',detail='';
+ if(S.month){
+  banner='<div class="banner noprint"><div><div class="t">'+monthLong(S.month)+'</div><div class="d">'+st.n+' jobs \u00b7 '+st.i+' incomplete \u00b7 '+fmtPct(st.rate)+' first-trip rate'+(reasons.length?' \u00b7 top reason: '+esc(reasons[0][0])+' ('+reasons[0][1]+')':'')+'</div></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="tolog">Open in job log</button><button class="btn primary" data-act="clearmonth">Back to all months</button></div></div>';
+  var list=inc.slice().sort(function(a,b){return a.ymd<b.ymd?1:a.ymd>b.ymd?-1:0});
+  detail='<div class="card" style="margin-top:20px"><h2>Incomplete jobs in '+monthLong(S.month)+'</h2><div class="sub">'+list.length+' jobs needed a second trip</div>'+
+   (list.length?'<div class="scroll" style="margin-top:8px"><table style="min-width:820px"><thead><tr><th>Date</th><th>Builder</th><th>Community</th><th>Lot</th><th>AppWright #</th><th>PM</th><th>Reason</th><th>Notes</th></tr></thead><tbody>'+
+   list.map(function(r){return '<tr><td style="white-space:nowrap">'+esc(r.ds)+'</td><td><b>'+esc(nm('builder',r.builder))+'</b></td><td>'+esc(nm('community',r.community))+'</td><td>'+esc(r.lot)+'</td><td>'+esc(r.aw)+'</td><td>'+(r.pm?esc(nm('pm',r.pm)):'\u2013')+'</td><td style="color:var(--orange);font-weight:700">'+(r.reason?esc(r.reason):'(No reason entered)')+'</td><td>'+esc(r.notes)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="sub" style="margin-top:10px">Every job this month was finished on the first trip.</div>')+'</div>';
+ }
+ return ''+banner+
  '<div class="kpis">'+
  '<div class="card kpi"><div class="k">First-trip rate</div><div class="v" style="color:'+barColor(st.rate)+'">'+fmtPct(st.rate)+'</div><div class="s">'+st.c+' of '+st.n+' jobs complete</div></div>'+
  '<div class="card kpi"><div class="k">Total jobs</div><div class="v">'+st.n+'</div><div class="s">'+esc(span)+'</div></div>'+
@@ -311,11 +367,11 @@ function renderDash(){
  '<div class="row"><div class="card col3"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><h2>Completion rate by month</h2>'+
  '<div class="sub noprint" style="margin:0">Goal <input type="number" id="goal" min="1" max="100" value="'+S.goal+'" style="width:64px;min-height:36px;border:1px solid #C3CBDA;border-radius:8px;padding:0 8px">% <span style="color:var(--amber);font-weight:800">- - -</span></div>'+
  '<div class="sub printonly" style="margin:0">Dashed line = goal ('+S.goal+'%)</div></div>'+
- '<div class="plot"><div class="goalline" style="bottom:'+Math.round(S.goal*1.5)+'px"></div>'+plot+'</div><div class="mlabels">'+labs+'</div>'+
+ '<div class="hint noprint">Tap a month to see what happened that month.</div><div class="plot"><div class="goalline" style="bottom:'+Math.round(S.goal*1.5)+'px"></div>'+plot+'</div><div class="mlabels">'+labs+'</div>'+
  (partial?'<div class="note">The latest month is not finished yet.</div>':'')+'</div>'+
  '<div class="card col2"><h2>Why trips were incomplete</h2><div class="sub">'+st.i+' incomplete jobs, by reason</div><div style="display:flex;flex-direction:column;gap:14px;margin-top:18px">'+
- (reasons.length?reasons.map(function(r){return '<div><div style="display:flex;justify-content:space-between;font-weight:600"><span>'+esc(r[0])+'</span><span style="font-weight:800">'+r[1]+'</span></div><div class="track" style="margin-top:6px"><div class="fillbar" style="width:'+Math.round(r[1]/maxR*100)+'%;background:var(--orange)"></div></div></div>'}).join(''):'<div class="sub">Nothing to show.</div>')+
- '</div></div></div>'+
+ (reasons.length?reasons.map(function(r){return '<button class="rowbtn" data-act="reason" data-v="'+esc(r[0])+'"><div style="display:flex;justify-content:space-between;font-weight:600"><span class="nm">'+esc(r[0])+'</span><span style="font-weight:800">'+r[1]+'</span></div><div class="track" style="margin-top:6px"><div class="fillbar" style="width:'+Math.round(r[1]/maxR*100)+'%;background:var(--orange)"></div></div></button>'}).join('')+'<div class="hint">Tap a reason to see those jobs.</div>':'<div class="sub">Nothing to show.</div>')+
+ '</div></div></div>'+detail+
  '<div class="row"><div class="card col3"><h2>By builder</h2><div class="scroll" style="margin-top:8px"><table><thead><tr><th>Builder</th><th style="text-align:right">Jobs</th><th style="text-align:right">Incomplete</th><th>First-trip rate</th></tr></thead><tbody>'+btab+'</tbody></table></div>'+moreB+'</div>'+
  '<div class="card col2"><h2>By project manager</h2><div class="scroll" style="margin-top:8px"><table><thead><tr><th>PM</th><th style="text-align:right">Jobs</th><th style="text-align:right">Incomplete</th><th style="text-align:right">Rate</th></tr></thead><tbody>'+ptab+'</tbody></table></div>'+
  '<div class="note">Jobs entered before PM names were added show as No PM name.</div></div></div>';
@@ -347,6 +403,7 @@ function renderLog(){
  var body=shown.map(function(r){return '<tr>'+vis.map(function(c){return '<td>'+cell(c[0],r)+'</td>'}).join('')+'</tr>'}).join('');
  var more=rows.length>S.limit?'<div style="text-align:center;margin-top:12px" class="noprint"><button class="btn light" data-act="more">Show 100 more ('+(rows.length-S.limit)+' left)</button></div>':'';
  return ''+
+ (S.month?'<div class="banner noprint" style="margin-top:0;margin-bottom:16px"><div><div class="t">'+monthLong(S.month)+'</div><div class="d">Job log is showing this month only</div></div><button class="btn primary" data-act="clearmonth">Show all months</button></div>':'')+
  '<div class="card noprint"><span class="lbl">Quick filters</span><div class="chips" style="margin-top:8px">'+chips+'</div></div>'+
  '<div class="tools"><div>Showing '+Math.min(S.limit,rows.length)+' of '+rows.length+' jobs'+(rows.length!==total?' (filtered from '+total+')':'')+'</div>'+
  '<details class="cols noprint"'+(S.colsOpen?' open':'')+'><summary>Columns</summary><div class="pop">'+COLS.map(function(c){return '<label class="chk"><input type="checkbox" data-col="'+c[0]+'"'+(S.cols[c[0]]?' checked':'')+'>'+c[1]+'</label>'}).join('')+'</div></details></div>'+
@@ -356,37 +413,46 @@ function renderLog(){
 /* ---------- drawing ---------- */
 function printHead(){
  var parts=[];var f=S.f;
- if(f.from&&f.to)parts.push(f.from+' to '+f.to);
+ if(S.month)parts.push(monthLong(S.month));else if(f.from&&f.to)parts.push(f.from+' to '+f.to);
  if(f.builder)parts.push(nm('builder',f.builder));if(f.pm)parts.push(nm('pm',f.pm));if(f.community)parts.push(nm('community',f.community));if(f.reason)parts.push(f.reason);
  return '<div style="font-size:22px;font-weight:800">First-Trip Completion \u2013 '+(S.ds==='trim'?'Trim':'Lockout')+'</div><div class="sub">'+esc(parts.join(' \u00b7 '))+'</div>';
 }
 function drawBody(){
  var b=$('#body');
  if(!S.loaded){
-  b.innerHTML='<div class="drop noprint"><h1>Load your tracker</h1><p style="color:var(--muted);margin:0 0 18px">Choose your BFS Trim and Lockout Tracker Excel file. It is read in this browser and never uploaded.</p><label class="btn primary" for="file" style="cursor:pointer">Choose Excel file</label></div>';
+  if(GATE_MSG==='NODATA'){b.innerHTML='<div class="gate"><h1>No data yet</h1><p>The dashboard hasn\u2019t been published yet, or it couldn\u2019t be reached. Try again in a few minutes.</p></div>';return}
+  b.innerHTML='<div class="gate"><h1>First-Trip Completion</h1><p>Enter the password to view the dashboard.</p>'+
+   '<label for="pw" class="lbl">Password</label><input type="password" id="pw" autocomplete="current-password" style="margin-top:6px">'+
+   '<label class="chk" style="margin-top:8px"><input type="checkbox" id="rem">Remember on this device</label>'+
+   '<button class="btn primary" id="unlockBtn" data-act="unlock" style="width:100%;margin-top:8px"'+(ENC?'':' disabled')+'>'+(ENC?'View dashboard':'Loading\u2026')+'</button>'+
+   '<div class="err" role="alert">'+esc(GATE_MSG)+'</div></div>';
+  var pw=$('#pw');if(pw){pw.focus();pw.addEventListener('keydown',function(e){if(e.key==='Enter')unlock(pw.value,$('#rem').checked)})}
+  $('#updated').textContent='';
   return;
  }
  b.innerHTML=S.view==='dash'?renderDash():renderLog();
  $('#printHead').innerHTML=printHead();
+ if(S.published){var pd=new Date(S.published);$('#updated').textContent='Last updated '+pd.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})+'.'}
 }
 function drawHeader(){
  var segs=document.querySelectorAll('#dsSeg button');
  segs.forEach(function(x){var k=x.getAttribute('data-v');x.classList.toggle('on',k===S.ds);x.disabled=!S.loaded||!S.data[k].length});
- document.querySelectorAll('#viewNav button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===S.view)});
+ document.querySelectorAll('#viewNav button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===S.view);x.disabled=!S.loaded});
+ document.querySelectorAll('[data-act="xlsx"],[data-act="png"],[data-act="pdf"],[data-act="lock"]').forEach(function(x){x.hidden=!S.loaded});
 }
 function draw(){drawHeader();drawFilters();drawBody()}
 
 /* ---------- exports ---------- */
 function stamp(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
 function exportXlsx(){
- if(!S.loaded){alert('Load your Excel file first.');return}
+ if(!S.loaded)return;
  var rows=sortedRows();
  var vis=COLS.filter(function(c){return S.cols[c[0]]});
  var log=rows.map(function(r){var o={};vis.forEach(function(c){var k=c[0],v;
   if(k==='builder')v=nm('builder',r.builder);else if(k==='community')v=nm('community',r.community);else if(k==='pm')v=nm('pm',r.pm);
   else if(k==='flags')v=r.flags.join(', ');else if(k==='date')v=r.ds;else v=r[k];o[c[1]]=v});return o});
  var base=filt(rowsNow(),false),st=stats(base);
- var A=[['First-Trip Completion \u2013 '+(S.ds==='trim'?'Trim':'Lockout')],[S.f.from+' to '+S.f.to],[],['First-trip rate',fmtPct(st.rate)],['Total jobs',st.n],['Complete',st.c],['Incomplete',st.i],[]];
+ var A=[['First-Trip Completion \u2013 '+(S.ds==='trim'?'Trim':'Lockout')],[S.month?monthLong(S.month):(S.f.from+' to '+S.f.to)],[],['First-trip rate',fmtPct(st.rate)],['Total jobs',st.n],['Complete',st.c],['Incomplete',st.i],[]];
  A.push(['By builder']);A.push(['Builder','Jobs','Complete','Incomplete','Rate']);
  var bg=groupBy(base,'builder');Object.keys(bg).sort(function(a,b){return bg[b].length-bg[a].length}).forEach(function(b){var s=stats(bg[b]);A.push([nm('builder',b),s.n,s.c,s.i,fmtPct(s.rate)])});
  A.push([]);A.push(['By project manager']);A.push(['PM','Jobs','Complete','Incomplete','Rate']);
@@ -409,7 +475,7 @@ function loadH2C(){
  return h2cPromise;
 }
 function exportPng(){
- if(!S.loaded){alert('Load your Excel file first.');return}
+ if(!S.loaded)return;
  loadH2C().then(function(){
   return html2canvas($('#report'),{scale:2,backgroundColor:'#F4F6FA',useCORS:true});
  }).then(function(c){
@@ -428,9 +494,16 @@ document.addEventListener('click',function(e){
  else if(act==='sort'){if(S.sort.key===v)S.sort.dir*=-1;else{S.sort.key=v;S.sort.dir=(v==='date'?-1:1)}drawBody()}
  else if(act==='more'){S.limit+=100;drawBody()}
  else if(act==='allb'){S.showAllB=!S.showAllB;drawBody()}
+ else if(act==='month'){S.month=(S.month===v)?'':v;S.limit=100;drawBody();window.scrollTo({top:0,behavior:'smooth'})}
+ else if(act==='clearmonth'){S.month='';S.limit=100;drawBody()}
+ else if(act==='tolog'){S.view='log';S.quick.inc=true;S.limit=100;drawHeader();drawBody();window.scrollTo({top:0,behavior:'smooth'})}
+ else if(act==='reason'){S.f.reason=(v==='(No reason entered)')?'':v;S.quick.inc=true;S.view='log';S.limit=100;drawHeader();drawFilters();drawBody();window.scrollTo({top:0,behavior:'smooth'})}
+ else if(act==='builder'){S.f.builder=v;S.limit=100;drawFilters();drawBody();window.scrollTo({top:0,behavior:'smooth'})}
+ else if(act==='unlock'){var pw=$('#pw');if(pw&&pw.value)unlock(pw.value,$('#rem').checked)}
+ else if(act==='lock'){try{localStorage.removeItem('ftc_pw')}catch(e){}S.loaded=false;S.data={trim:[],lockout:[]};GATE_MSG='';draw()}
  else if(act==='xlsx')exportXlsx();
  else if(act==='png')exportPng();
- else if(act==='pdf'){if(!S.loaded){alert('Load your Excel file first.');return}window.print()}
+ else if(act==='pdf'){if(!S.loaded)return;window.print()}
 });
 var qTimer=null;
 document.addEventListener('input',function(e){
@@ -438,7 +511,6 @@ document.addEventListener('input',function(e){
 });
 document.addEventListener('change',function(e){
  var t=e.target;
- if(t.id==='file'){var fl=t.files&&t.files[0];if(!fl)return;var rd=new FileReader();rd.onload=function(){try{loadWorkbook(rd.result)}catch(err){alert('Could not read that file: '+err.message)}};rd.readAsArrayBuffer(fl);t.value='';return}
  if(t.id==='goal'){var g=parseFloat(t.value);if(g>0&&g<=100){S.goal=g;try{localStorage.setItem('ftc_goal',String(g))}catch(x){}}drawBody();return}
  var f=t.getAttribute&&t.getAttribute('data-f');
  if(f&&f!=='q'){S.f[f]=t.value;S.limit=100;drawBody();return}
@@ -448,13 +520,8 @@ document.addEventListener('change',function(e){
  if(c){S.cols[c]=t.checked;S.colsOpen=true;drawBody()}
 });
 document.addEventListener('toggle',function(e){if(e.target.classList&&e.target.classList.contains('cols'))S.colsOpen=e.target.open},true);
-document.addEventListener('dragover',function(e){e.preventDefault()});
-document.addEventListener('drop',function(e){
- e.preventDefault();var fl=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(!fl)return;
- var rd=new FileReader();rd.onload=function(){try{loadWorkbook(rd.result)}catch(err){alert('Could not read that file: '+err.message)}};rd.readAsArrayBuffer(fl);
-});
 window.addEventListener('beforeprint',function(){$('#printHead').innerHTML=printHead()});
-draw();
+draw();start();
 </script>
 </body>
 </html>
