@@ -136,7 +136,7 @@ tr.sel td{background:#EEF2FB}
   <button class="btn" data-act="xlsx">Export Excel</button>
   <button class="btn" data-act="png">Save as image</button>
   <button class="btn primary" data-act="pdf">Export PDF</button>
-  <button class="btn" data-act="lock" title="Lock this page on this device">Lock</button>
+  <button class="btn" data-act="lock" title="Log out and forget the password on this device">Log out</button>
  </div>
 </header>
 
@@ -476,7 +476,8 @@ function draw(){drawHeader();drawFilters();drawBody()}
 
 /* ---------- exports ---------- */
 function stamp(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
-function exportXlsx(){
+/* plain export, kept as a fallback if the formatting library can't load */
+function exportXlsxPlain(){
  if(!S.loaded)return;
  var rows=sortedRows();
  var vis=COLS.filter(function(c){return S.cols[c[0]]});
@@ -499,6 +500,107 @@ function exportXlsx(){
  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(log),'Job log');
  XLSX.writeFile(wb,'First-Trip_'+(S.ds==='trim'?'Trim':'Lockout')+'_'+stamp()+'.xlsx');
 }
+var xjsPromise=null;
+function loadExcelJS(){
+ if(window.ExcelJS)return Promise.resolve();
+ if(xjsPromise)return xjsPromise;
+ xjsPromise=new Promise(function(res,rej){var sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';sc.onload=res;sc.onerror=function(){xjsPromise=null;rej()};document.head.appendChild(sc)});
+ return xjsPromise;
+}
+function saveBlob(blob,name){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1500)}
+function exportXlsx(){
+ if(!S.loaded)return;
+ loadExcelJS().then(buildStyledWorkbook).then(function(r){
+  saveBlob(new Blob([r.buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),r.name);
+ }).catch(function(){exportXlsxPlain()});
+}
+function buildStyledWorkbook(){
+ var NAVY='FF14213D',BLUE='FF1E40AF',ORANGE='FFC2410C',AMBER='FFF59E0B',MUTED='FF4A5568',SOFT='FFEEF2FB',ZEBRA='FFF8FAFC',LINE='FFDDE2EC';
+ function fill(c){return{type:'pattern',pattern:'solid',fgColor:{argb:c}}}
+ var thin={style:'thin',color:{argb:LINE}},box={top:thin,left:thin,bottom:thin,right:thin};
+ var goal=S.goal/100,dsName=S.ds==='trim'?'Trim':'Lockout';
+ var base=filt(rowsNow(),false),st=stats(base);
+ var period=S.month?monthLong(S.month):(S.f.from+' to '+S.f.to);
+ var focus=focusItems().filter(function(it){return it[0]!=='month'&&it[0]!=='dates'}).map(function(it){return it[1]});
+ var wb=new ExcelJS.Workbook();wb.creator='First-Trip Completion';wb.created=new Date();
+
+ /* ---------- Summary ---------- */
+ var ws=wb.addWorksheet('Summary',{views:[{showGridLines:false}],pageSetup:{orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+ ws.columns=[{width:30},{width:14},{width:14},{width:14},{width:14},{width:4}];
+ ws.mergeCells('A1:E1');var t=ws.getCell('A1');t.value='First-Trip Completion \u2013 '+dsName;t.font={name:'Calibri',size:16,bold:true,color:{argb:'FFFFFFFF'}};t.fill=fill(NAVY);t.alignment={vertical:'middle',indent:1};ws.getRow(1).height=30;
+ ws.mergeCells('A2:E2');ws.getCell('A2').value=period+(focus.length?'  \u00b7  '+focus.join(' \u00b7 '):'');ws.getCell('A2').font={size:11,color:{argb:MUTED},bold:true};
+ ws.mergeCells('A3:E3');ws.getCell('A3').value='Exported '+new Date().toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})+(S.published?'  \u00b7  data last updated '+new Date(S.published).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric'}):'')+'  \u00b7  goal '+S.goal+'%';
+ ws.getCell('A3').font={size:9,italic:true,color:{argb:MUTED}};
+ var kl=['First-trip rate','Total jobs','Complete','Incomplete'],kv=[st.n?st.c/st.n:null,st.n,st.c,st.i];
+ kl.forEach(function(l,i){var c=ws.getRow(5).getCell(i+1);c.value=l;c.font={size:9,bold:true,color:{argb:MUTED}};c.fill=fill(SOFT);c.border=box;c.alignment={horizontal:'center'}});
+ kv.forEach(function(v,i){var c=ws.getRow(6).getCell(i+1);c.value=v;c.border=box;c.alignment={horizontal:'center',vertical:'middle'};
+  var col=i===0?(v!=null&&v>=goal?BLUE:ORANGE):i===3?ORANGE:i===2?BLUE:NAVY;c.font={size:20,bold:true,color:{argb:col}};if(i===0)c.numFmt='0.0%'});
+ ws.getRow(6).height=34;
+ var r=8;
+ function section(title,heads){
+  ws.mergeCells(r,1,r,5);var h=ws.getCell(r,1);h.value=title.toUpperCase();h.font={size:11,bold:true,color:{argb:NAVY}};
+  for(var c=1;c<=5;c++)ws.getCell(r,c).border={bottom:{style:'medium',color:{argb:AMBER}}};
+  r++;heads.forEach(function(x,i){var c=ws.getCell(r,i+1);c.value=x;c.font={size:9,bold:true,color:{argb:MUTED}};c.fill=fill(SOFT);c.border=box;c.alignment={horizontal:i?'center':'left'}});r++;
+ }
+ function line(vals,rateCol,pctCol){
+  var z=(r%2===0);
+  vals.forEach(function(v,i){var c=ws.getCell(r,i+1);c.value=v;c.border=box;c.font={size:10,bold:i===0,color:{argb:NAVY}};c.alignment={horizontal:i?'center':'left'};if(z)c.fill=fill(ZEBRA);
+   if(i===rateCol&&typeof v==='number'){c.numFmt='0.0%';c.font={size:10,bold:true,color:{argb:v>=goal?BLUE:ORANGE}}}
+   if(i===pctCol&&typeof v==='number')c.numFmt='0%';
+   if(i===3&&rateCol===4&&typeof v==='number'&&v>0)c.font={size:10,color:{argb:ORANGE}};
+  });r++;
+ }
+ function rate(s){return s.n?s.c/s.n:'\u2013'}
+ section('By builder',['Builder','Jobs','Complete','Incomplete','First-trip rate']);
+ var bg=groupBy(base,'builder');Object.keys(bg).sort(function(a,b){return bg[b].length-bg[a].length}).forEach(function(b){var s=stats(bg[b]);line([nm('builder',b),s.n,s.c,s.i,rate(s)],4)});
+ r++;section('By project manager',['Project manager','Jobs','Complete','Incomplete','First-trip rate']);
+ var pg=groupBy(base,'pm');ROSTER.concat(Object.keys(pg).filter(function(p){return p&&ROSTER.indexOf(p)<0})).forEach(function(p){var s=stats(pg[p]||[]);line([nm('pm',p),s.n,s.c,s.i,rate(s)],4)});
+ if(pg['']&&pg[''].length){var s0=stats(pg['']);line(['No PM name',s0.n,s0.c,s0.i,rate(s0)],4)}
+ r++;section('Why trips were incomplete',['Reason','Jobs','% of incomplete','','']);
+ var rc={};base.filter(function(x){return x.result==='Incomplete'}).forEach(function(x){var k=x.reason||'(No reason entered)';rc[k]=(rc[k]||0)+1});
+ var rk=Object.keys(rc).sort(function(a,b){return rc[b]-rc[a]});
+ if(rk.length)rk.forEach(function(k){line([k,rc[k],st.i?rc[k]/st.i:0,'',''],-1,2)});else line(['No incomplete jobs','','','',''],-1);
+ r++;section('By month',['Month','Jobs','Complete','Incomplete','First-trip rate']);
+ var mg=groupBy(base,'ym');Object.keys(mg).sort().forEach(function(m){var s=stats(mg[m]);line([monthLong(m),s.n,s.c,s.i,rate(s)],4)});
+
+ /* ---------- Incomplete jobs (the "why", with notes) ---------- */
+ var inc=base.filter(function(x){return x.result==='Incomplete'}).sort(function(a,b){return a.ymd<b.ymd?1:a.ymd>b.ymd?-1:0});
+ var wi=wb.addWorksheet('Incomplete jobs',{views:[{state:'frozen',ySplit:1,showGridLines:false}],pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+ var icols=[['Date',12],['Builder',16],['Community',22],['Lot',8],['AppWright #',13],['PM',16],['Reason',20],['Notes',60]];
+ wi.columns=icols.map(function(c){return{width:c[1]}});
+ var hr=wi.getRow(1);icols.forEach(function(c,i){var x=hr.getCell(i+1);x.value=c[0];x.font={bold:true,color:{argb:'FFFFFFFF'}};x.fill=fill(NAVY);x.alignment={vertical:'middle'}});hr.height=22;
+ inc.forEach(function(x,i){
+  var y=+x.ymd.slice(0,4),m=+x.ymd.slice(5,7),d=+x.ymd.slice(8,10);
+  var row=wi.addRow([new Date(Date.UTC(y,m-1,d)),nm('builder',x.builder),nm('community',x.community),x.lot,x.aw,x.pm?nm('pm',x.pm):'',x.reason||'(No reason entered)',x.notes]);
+  row.eachCell({includeEmpty:true},function(c,ci){c.border=box;c.alignment={vertical:'top',wrapText:ci===8};if(i%2)c.fill=fill(ZEBRA)});
+  row.getCell(1).numFmt='mm/dd/yyyy';row.getCell(2).font={bold:true};row.getCell(7).font={bold:true,color:{argb:ORANGE}};
+ });
+ if(inc.length)wi.autoFilter={from:{row:1,column:1},to:{row:1,column:icols.length}};
+
+ /* ---------- Job log (filtered, visible columns) ---------- */
+ var rows=sortedRows(),vis=COLS.filter(function(c){return S.cols[c[0]]});
+ var widths={date:12,builder:16,community:22,lot:8,aw:13,pm:16,result:12,reason:20,notes:50,flags:26};
+ var wl=wb.addWorksheet('Job log',{views:[{state:'frozen',ySplit:1,showGridLines:false}],pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+ wl.columns=vis.map(function(c){return{width:widths[c[0]]||14}});
+ var lh=wl.getRow(1);vis.forEach(function(c,i){var x=lh.getCell(i+1);x.value=c[1];x.font={bold:true,color:{argb:'FFFFFFFF'}};x.fill=fill(NAVY);x.alignment={vertical:'middle'}});lh.height=22;
+ rows.forEach(function(x,i){
+  var vals=vis.map(function(c){var k=c[0];
+   if(k==='date'){var y=+x.ymd.slice(0,4),m=+x.ymd.slice(5,7),d=+x.ymd.slice(8,10);return new Date(Date.UTC(y,m-1,d))}
+   if(k==='builder')return nm('builder',x.builder);if(k==='community')return nm('community',x.community);if(k==='pm')return x.pm?nm('pm',x.pm):'';
+   if(k==='flags')return x.flags.join(', ');return x[k]||'';});
+  var row=wl.addRow(vals);
+  row.eachCell({includeEmpty:true},function(c,ci){c.border=box;c.alignment={vertical:'top',wrapText:vis[ci-1][0]==='notes'};if(i%2)c.fill=fill(ZEBRA);
+   var k=vis[ci-1][0];
+   if(k==='date')c.numFmt='mm/dd/yyyy';
+   if(k==='builder')c.font={bold:true};
+   if(k==='result'){var ok=x.result==='Complete';c.fill=fill(ok?'FFE8EEFC':'FFFDEBDD');c.font={bold:true,color:{argb:ok?BLUE:'FF9A3412'}};c.alignment={horizontal:'center',vertical:'top'}}
+   if(k==='flags'&&c.value)c.font={bold:true,size:9,color:{argb:ORANGE}};
+  });
+ });
+ if(rows.length)wl.autoFilter={from:{row:1,column:1},to:{row:1,column:vis.length}};
+ return wb.xlsx.writeBuffer().then(function(buf){return{buf:buf,name:'First-Trip_'+dsName+(S.month?'_'+S.month:'')+'_'+stamp()+'.xlsx'}});
+}
+
 var h2cPromise=null;
 function loadH2C(){
  if(window.html2canvas)return Promise.resolve();
