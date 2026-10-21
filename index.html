@@ -95,6 +95,18 @@ details.cols .pop{position:absolute;right:0;z-index:5;background:#fff;border:1px
 .banner .t{font-size:18px;font-weight:800}.banner .d{font-size:14px;color:#D5DCEE;margin-top:2px}
 .banner .btn{border-color:#5A6C98}
 .hint{font-size:12px;color:var(--muted);margin-top:2px}
+.focusbar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 14px;background:var(--ink);color:#fff;border-radius:0 0 14px 14px;padding:12px 18px;margin-top:12px;box-shadow:0 6px 16px rgba(20,33,61,.18)}
+.focusbar .lab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#D5DCEE;margin-right:4px}
+.fchip{display:inline-flex;align-items:center;gap:8px;min-height:36px;border:1px solid #5A6C98;background:var(--navy2);color:#fff;font-weight:700;padding:0 6px 0 14px;border-radius:18px;font-size:14px}
+.fchip .x{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:13px;background:#33467A;font-size:16px;line-height:1}
+.fchip:hover .x{background:var(--orange)}
+.focusbar .d{font-size:13px;color:#D5DCEE;width:100%}
+.focusbar .btn{min-height:40px;border-color:#5A6C98}
+tr.dim td{opacity:.35}
+tr.sel td{background:#EEF2FB}
+.pwrow{display:flex;gap:8px;align-items:stretch;margin-top:6px}
+.pwrow input{flex:1 1 auto;min-width:0}
+.pwbtn{border:1px solid #C3CBDA;background:#fff;border-radius:8px;padding:0 14px;font-weight:700;min-width:64px}
 @media (max-width:820px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi .v{font-size:36px}}
 @media print{
  body{background:#fff}
@@ -257,15 +269,15 @@ function rowsNow(){return S.data[S.ds]}
 function resetFilters(){
  var rows=rowsNow();var mn='',mx='';
  rows.forEach(function(r){if(!mn||r.ymd<mn)mn=r.ymd;if(!mx||r.ymd>mx)mx=r.ymd});
- S.f={from:mn,to:mx,builder:'',pm:'',community:'',reason:'',q:''};
+ S.f={from:mn,to:mx,builder:'',pm:'',community:'',reason:'',q:''};S.defFrom=mn;S.defTo=mx;
  S.quick={inc:false,repeat:false,roc:false,nopm:false,flag:false};S.limit=100;S.month='';
 }
-function filt(rows,withQuick,ignoreMonth){
+function filt(rows,withQuick,ignoreMonth,ignoreKey){
  var f=S.f,q=f.q.trim().toLowerCase(),k=S.quick;
  return rows.filter(function(r){
   if(!ignoreMonth&&S.month&&r.ym!==S.month)return false;
   if(f.from&&r.ymd<f.from)return false;if(f.to&&r.ymd>f.to)return false;
-  if(f.builder&&r.builder!==f.builder)return false;if(f.pm&&r.pm!==f.pm)return false;
+  if(ignoreKey!=='builder'&&f.builder&&r.builder!==f.builder)return false;if(ignoreKey!=='pm'&&f.pm&&r.pm!==f.pm)return false;
   if(f.community&&r.community!==f.community)return false;if(f.reason&&r.reason!==f.reason)return false;
   if(q){var hay=[r.builder,r.community,r.lot,r.aw,r.reason,r.notes,r.pm].join(' ').toLowerCase();if(hay.indexOf(q)<0)return false}
   if(withQuick){
@@ -308,6 +320,24 @@ function monthLabel(ym,multi){
  return multi?s+' '+String(y).slice(2):s;
 }
 function monthLong(ym){var y=+ym.slice(0,4),m=+ym.slice(5,7);return new Date(Date.UTC(y,m-1,1)).toLocaleString('en-US',{month:'long',year:'numeric',timeZone:'UTC'})}
+function focusItems(){
+ var f=S.f,a=[];
+ if(S.month)a.push(['month',monthLong(S.month)]);
+ if(f.builder)a.push(['builder',nm('builder',f.builder)]);
+ if(f.pm)a.push(['pm',nm('pm',f.pm)]);
+ if(f.community)a.push(['community',nm('community',f.community)]);
+ if(f.reason)a.push(['reason',f.reason]);
+ if(f.q.trim())a.push(['q','Search: '+f.q.trim()]);
+ if((f.from&&f.from!==S.defFrom)||(f.to&&f.to!==S.defTo))a.push(['dates',(f.from||'start')+' to '+(f.to||'end')]);
+ return a;
+}
+function focusBar(detail,showLog){
+ var items=focusItems();if(!items.length)return '';
+ return '<div class="focusbar noprint"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span class="lab">Showing</span>'+
+  items.map(function(it){return '<button class="fchip" data-act="unchip" data-v="'+it[0]+'" aria-label="Remove '+esc(it[1])+'">'+esc(it[1])+'<span class="x" aria-hidden="true">\u00d7</span></button>'}).join('')+
+  '</div><div style="display:flex;gap:8px;flex-wrap:wrap">'+(showLog?'<button class="btn" data-act="tolog">Open in job log</button>':'')+'<button class="btn primary" data-act="clearall">Show everything</button></div>'+
+  (detail?'<div class="d">'+detail+'</div>':'')+'</div>';
+}
 function barColor(rate){return rate>=S.goal?'var(--blue)':'var(--orange)'}
 function renderDash(){
  var rows=filt(rowsNow(),false),st=stats(rows);
@@ -329,34 +359,36 @@ function renderDash(){
   plot+='<button class="mcol'+dim+'" data-act="month" data-v="'+k+'" aria-label="Show '+monthLong(k)+'"><div class="mrate">'+fmtPct(s.rate)+'</div><div class="mbar" style="height:'+Math.round(s.rate*1.5)+'px;background:'+barColor(s.rate)+'"></div></button>';
   labs+='<div><button class="mlab'+sel+'" data-act="month" data-v="'+k+'" style="width:100%">'+monthLabel(k,multi)+'<span>'+s.n+' jobs</span></button></div>';
  });
- var bg=groupBy(rows,'builder'),bnames=Object.keys(bg).sort(function(a,b){return bg[b].length-bg[a].length});
+ var bg=groupBy(filt(rowsNow(),false,false,'builder'),'builder'),bnames=Object.keys(bg).sort(function(a,b){return bg[b].length-bg[a].length});
  var shownB=S.showAllB?bnames:bnames.slice(0,10);
+ if(S.f.builder&&shownB.indexOf(S.f.builder)<0&&bg[S.f.builder])shownB=shownB.concat([S.f.builder]);
  var btab=shownB.map(function(b){
   var s=stats(bg[b]);
-  return '<tr><td><button class="namebtn" data-act="builder" data-v="'+esc(b)+'">'+esc(nm('builder',b))+'</button></td><td style="text-align:right">'+s.n+'</td><td style="text-align:right">'+s.i+'</td>'+
+  var bc=S.f.builder?(S.f.builder===b?' class="sel"':' class="dim"'):'';
+  return '<tr'+bc+'><td><button class="namebtn" data-act="builder" data-v="'+esc(b)+'" title="'+(S.f.builder===b?'Tap again to show all builders':'Focus on this builder')+'">'+esc(nm('builder',b))+'</button></td><td style="text-align:right">'+s.n+'</td><td style="text-align:right">'+s.i+'</td>'+
   '<td style="min-width:200px"><div style="display:flex;align-items:center;gap:10px"><div class="track" style="flex:1 1 0"><div class="fillbar" style="width:'+Math.round(s.rate)+'%;background:'+barColor(s.rate)+'"></div></div>'+
   '<span style="width:52px;text-align:right;font-weight:800">'+fmtPct(s.rate)+'</span><span class="flag" style="width:64px">'+(s.rate<S.goal?'Below goal':'')+'</span></div></td></tr>';
  }).join('');
  var moreB=bnames.length>10?'<button class="linkbtn" data-act="allb">'+(S.showAllB?'Show top 10 only':'Show all '+bnames.length+' builders')+'</button>':'';
- var pg=groupBy(rows,'pm');
+ var pg=groupBy(filt(rowsNow(),false,false,'pm'),'pm');
  var pnames=ROSTER.filter(function(p){return true}).concat(Object.keys(pg).filter(function(p){return p&&ROSTER.indexOf(p)<0}));
  var ptab=pnames.map(function(p){
   var arr=pg[p]||[],s=stats(arr);
-  return '<tr><td style="font-weight:700">'+esc(nm('pm',p))+'</td><td style="text-align:right">'+(s.n||'\u2013')+'</td><td style="text-align:right">'+(s.n?s.i:'\u2013')+'</td><td style="text-align:right;font-weight:800;color:'+(s.n?(s.rate>=S.goal?'var(--blue)':'var(--orange)'):'var(--muted)')+'">'+fmtPct(s.rate)+'</td></tr>';
+  var pc=S.f.pm?(S.f.pm===p?' class="sel"':' class="dim"'):'';
+  return '<tr'+pc+'><td>'+(s.n?'<button class="namebtn" data-act="pmsel" data-v="'+esc(p)+'">'+esc(nm('pm',p))+'</button>':'<b>'+esc(nm('pm',p))+'</b>')+'</td><td style="text-align:right">'+(s.n||'\u2013')+'</td><td style="text-align:right">'+(s.n?s.i:'\u2013')+'</td><td style="text-align:right;font-weight:800;color:'+(s.n?(s.rate>=S.goal?'var(--blue)':'var(--orange)'):'var(--muted)')+'">'+fmtPct(s.rate)+'</td></tr>';
  }).join('');
  var nop=pg[''];
- if(nop&&nop.length){var s0=stats(nop);ptab+='<tr><td style="color:var(--muted)">No PM name</td><td style="text-align:right">'+s0.n+'</td><td style="text-align:right">'+s0.i+'</td><td style="text-align:right;color:var(--muted)">'+fmtPct(s0.rate)+'</td></tr>'}
+ if(nop&&nop.length){var s0=stats(nop);ptab+='<tr'+(S.f.pm?' class="dim"':'')+'><td style="color:var(--muted)">No PM name</td><td style="text-align:right">'+s0.n+'</td><td style="text-align:right">'+s0.i+'</td><td style="text-align:right;color:var(--muted)">'+fmtPct(s0.rate)+'</td></tr>'}
  var span=S.f.from&&S.f.to?(S.f.from+' to '+S.f.to):'';
  if(S.month)span=monthLong(S.month);
  var banner='',detail='';
  if(S.month){
-  banner='<div class="banner noprint"><div><div class="t">'+monthLong(S.month)+'</div><div class="d">'+st.n+' jobs \u00b7 '+st.i+' incomplete \u00b7 '+fmtPct(st.rate)+' first-trip rate'+(reasons.length?' \u00b7 top reason: '+esc(reasons[0][0])+' ('+reasons[0][1]+')':'')+'</div></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="tolog">Open in job log</button><button class="btn primary" data-act="clearmonth">Back to all months</button></div></div>';
   var list=inc.slice().sort(function(a,b){return a.ymd<b.ymd?1:a.ymd>b.ymd?-1:0});
   detail='<div class="card" style="margin-top:20px"><h2>Incomplete jobs in '+monthLong(S.month)+'</h2><div class="sub">'+list.length+' jobs needed a second trip</div>'+
    (list.length?'<div class="scroll" style="margin-top:8px"><table style="min-width:820px"><thead><tr><th>Date</th><th>Builder</th><th>Community</th><th>Lot</th><th>AppWright #</th><th>PM</th><th>Reason</th><th>Notes</th></tr></thead><tbody>'+
    list.map(function(r){return '<tr><td style="white-space:nowrap">'+esc(r.ds)+'</td><td><b>'+esc(nm('builder',r.builder))+'</b></td><td>'+esc(nm('community',r.community))+'</td><td>'+esc(r.lot)+'</td><td>'+esc(r.aw)+'</td><td>'+(r.pm?esc(nm('pm',r.pm)):'\u2013')+'</td><td style="color:var(--orange);font-weight:700">'+(r.reason?esc(r.reason):'(No reason entered)')+'</td><td>'+esc(r.notes)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="sub" style="margin-top:10px">Every job this month was finished on the first trip.</div>')+'</div>';
  }
+ banner=focusBar(st.n+' jobs \u00b7 '+st.i+' incomplete \u00b7 '+fmtPct(st.rate)+' first-trip rate'+(reasons.length?' \u00b7 top reason: '+esc(reasons[0][0])+' ('+reasons[0][1]+')':''),true);
  return ''+banner+
  '<div class="kpis">'+
  '<div class="card kpi"><div class="k">First-trip rate</div><div class="v" style="color:'+barColor(st.rate)+'">'+fmtPct(st.rate)+'</div><div class="s">'+st.c+' of '+st.n+' jobs complete</div></div>'+
@@ -372,7 +404,7 @@ function renderDash(){
  '<div class="card col2"><h2>Why trips were incomplete</h2><div class="sub">'+st.i+' incomplete jobs, by reason</div><div style="display:flex;flex-direction:column;gap:14px;margin-top:18px">'+
  (reasons.length?reasons.map(function(r){return '<button class="rowbtn" data-act="reason" data-v="'+esc(r[0])+'"><div style="display:flex;justify-content:space-between;font-weight:600"><span class="nm">'+esc(r[0])+'</span><span style="font-weight:800">'+r[1]+'</span></div><div class="track" style="margin-top:6px"><div class="fillbar" style="width:'+Math.round(r[1]/maxR*100)+'%;background:var(--orange)"></div></div></button>'}).join('')+'<div class="hint">Tap a reason to see those jobs.</div>':'<div class="sub">Nothing to show.</div>')+
  '</div></div></div>'+detail+
- '<div class="row"><div class="card col3"><h2>By builder</h2><div class="scroll" style="margin-top:8px"><table><thead><tr><th>Builder</th><th style="text-align:right">Jobs</th><th style="text-align:right">Incomplete</th><th>First-trip rate</th></tr></thead><tbody>'+btab+'</tbody></table></div>'+moreB+'</div>'+
+ '<div class="row"><div class="card col3"><h2>By builder</h2><div class="scroll" style="margin-top:8px"><table><thead><tr><th>Builder</th><th style="text-align:right">Jobs</th><th style="text-align:right">Incomplete</th><th>First-trip rate</th></tr></thead><tbody>'+btab+'</tbody></table></div>'+moreB+'<div class="hint">Tap a builder to focus on it. Tap it again to see all builders.</div></div>'+
  '<div class="card col2"><h2>By project manager</h2><div class="scroll" style="margin-top:8px"><table><thead><tr><th>PM</th><th style="text-align:right">Jobs</th><th style="text-align:right">Incomplete</th><th style="text-align:right">Rate</th></tr></thead><tbody>'+ptab+'</tbody></table></div>'+
  '<div class="note">Jobs entered before PM names were added show as No PM name.</div></div></div>';
 }
@@ -403,7 +435,7 @@ function renderLog(){
  var body=shown.map(function(r){return '<tr>'+vis.map(function(c){return '<td>'+cell(c[0],r)+'</td>'}).join('')+'</tr>'}).join('');
  var more=rows.length>S.limit?'<div style="text-align:center;margin-top:12px" class="noprint"><button class="btn light" data-act="more">Show 100 more ('+(rows.length-S.limit)+' left)</button></div>':'';
  return ''+
- (S.month?'<div class="banner noprint" style="margin-top:0;margin-bottom:16px"><div><div class="t">'+monthLong(S.month)+'</div><div class="d">Job log is showing this month only</div></div><button class="btn primary" data-act="clearmonth">Show all months</button></div>':'')+
+ (focusItems().length?'<div style="margin:-12px 0 16px">'+focusBar(rows.length+' jobs match',false)+'</div>':'')+
  '<div class="card noprint"><span class="lbl">Quick filters</span><div class="chips" style="margin-top:8px">'+chips+'</div></div>'+
  '<div class="tools"><div>Showing '+Math.min(S.limit,rows.length)+' of '+rows.length+' jobs'+(rows.length!==total?' (filtered from '+total+')':'')+'</div>'+
  '<details class="cols noprint"'+(S.colsOpen?' open':'')+'><summary>Columns</summary><div class="pop">'+COLS.map(function(c){return '<label class="chk"><input type="checkbox" data-col="'+c[0]+'"'+(S.cols[c[0]]?' checked':'')+'>'+c[1]+'</label>'}).join('')+'</div></details></div>'+
@@ -422,7 +454,7 @@ function drawBody(){
  if(!S.loaded){
   if(GATE_MSG==='NODATA'){b.innerHTML='<div class="gate"><h1>No data yet</h1><p>The dashboard hasn\u2019t been published yet, or it couldn\u2019t be reached. Try again in a few minutes.</p></div>';return}
   b.innerHTML='<div class="gate"><h1>First-Trip Completion</h1><p>Enter the password to view the dashboard.</p>'+
-   '<label for="pw" class="lbl">Password</label><input type="password" id="pw" autocomplete="current-password" style="margin-top:6px">'+
+   '<label for="pw" class="lbl">Password</label><div class="pwrow"><input type="password" id="pw" autocomplete="current-password"><button type="button" class="pwbtn" data-act="showpw" aria-pressed="false">Show</button></div>'+
    '<label class="chk" style="margin-top:8px"><input type="checkbox" id="rem">Remember on this device</label>'+
    '<button class="btn primary" id="unlockBtn" data-act="unlock" style="width:100%;margin-top:8px"'+(ENC?'':' disabled')+'>'+(ENC?'View dashboard':'Loading\u2026')+'</button>'+
    '<div class="err" role="alert">'+esc(GATE_MSG)+'</div></div>';
@@ -494,11 +526,15 @@ document.addEventListener('click',function(e){
  else if(act==='sort'){if(S.sort.key===v)S.sort.dir*=-1;else{S.sort.key=v;S.sort.dir=(v==='date'?-1:1)}drawBody()}
  else if(act==='more'){S.limit+=100;drawBody()}
  else if(act==='allb'){S.showAllB=!S.showAllB;drawBody()}
- else if(act==='month'){S.month=(S.month===v)?'':v;S.limit=100;drawBody();window.scrollTo({top:0,behavior:'smooth'})}
+ else if(act==='month'){S.month=(S.month===v)?'':v;S.limit=100;drawBody()}
  else if(act==='clearmonth'){S.month='';S.limit=100;drawBody()}
  else if(act==='tolog'){S.view='log';S.quick.inc=true;S.limit=100;drawHeader();drawBody();window.scrollTo({top:0,behavior:'smooth'})}
  else if(act==='reason'){S.f.reason=(v==='(No reason entered)')?'':v;S.quick.inc=true;S.view='log';S.limit=100;drawHeader();drawFilters();drawBody();window.scrollTo({top:0,behavior:'smooth'})}
- else if(act==='builder'){S.f.builder=v;S.limit=100;drawFilters();drawBody();window.scrollTo({top:0,behavior:'smooth'})}
+ else if(act==='builder'){S.f.builder=(S.f.builder===v)?'':v;S.limit=100;drawFilters();drawBody()}
+ else if(act==='pmsel'){S.f.pm=(S.f.pm===v)?'':v;S.limit=100;drawFilters();drawBody()}
+ else if(act==='unchip'){if(v==='month')S.month='';else if(v==='dates'){S.f.from=S.defFrom;S.f.to=S.defTo}else S.f[v]='';S.limit=100;drawFilters();drawBody()}
+ else if(act==='clearall'){var keepView=S.view;resetFilters();S.view=keepView;drawFilters();drawBody()}
+ else if(act==='showpw'){var pi=$('#pw');if(pi){var show=pi.type==='password';pi.type=show?'text':'password';t.textContent=show?'Hide':'Show';t.setAttribute('aria-pressed',show?'true':'false');pi.focus()}}
  else if(act==='unlock'){var pw=$('#pw');if(pw&&pw.value)unlock(pw.value,$('#rem').checked)}
  else if(act==='lock'){try{localStorage.removeItem('ftc_pw')}catch(e){}S.loaded=false;S.data={trim:[],lockout:[]};GATE_MSG='';draw()}
  else if(act==='xlsx')exportXlsx();
